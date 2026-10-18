@@ -1,0 +1,43 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+html, body, #root {
+  background: #0a0b0d;
+  color: #e4e4e7;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.font-display { font-family: 'Space Grotesk', 'Inter', sans-serif; }
+.font-mono, code, .num { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+.label-caps {
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  color: #71717a;
+}
+
+::selection { background: rgba(0, 217, 163, 0.25); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #0a0b0d; }
+::-webkit-scrollbar-thumb { background: #27272a; border-radius: 6px; border: 2px solid #0a0b0d; }
+::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+@keyframes scanline {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.scanline { animation: scanline 1.4s linear infinite; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.4s ease both; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.pulse-dot { animation: pulse-dot 1.2s ease infinite; }
