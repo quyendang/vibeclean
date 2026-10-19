@@ -17,19 +17,38 @@ export function supportsFSAccess(): boolean {
 
 async function subtreeStats(
   dir: FileSystemDirectoryHandle,
-  acc: { size: number; files: number }
+  acc: { size: number; files: number },
+  skipped?: string[],
+  path = dir.name
 ): Promise<void> {
-  for await (const entry of (dir as any).values()) {
-    if (entry.kind === 'file') {
-      try {
-        const f = await entry.getFile();
-        acc.size += f.size;
-        acc.files++;
-      } catch { /* skip */ }
-    } else {
-      await subtreeStats(entry, acc);
+  try {
+    for await (const entry of (dir as any).values()) {
+      if (entry.kind === 'file') {
+        try {
+          const f = await entry.getFile();
+          acc.size += f.size;
+          acc.files++;
+        } catch { skipped?.push(`${path}/${entry.name}`); }
+      } else {
+        await subtreeStats(entry, acc, skipped, `${path}/${entry.name}`);
+      }
     }
-  }
+  } catch { skipped?.push(path + '/*'); }
+}
+
+/** Iterate entries safely — one blocked entry never aborts the whole folder */
+async function safeEntries(dir: FileSystemDirectoryHandle, path: string, skipped: string[]): Promise<FileSystemHandle[]> {
+  const out: FileSystemHandle[] = [];
+  try {
+    const it = (dir as any).values();
+    while (true) {
+      let r: IteratorResult<any>;
+      try { r = await it.next(); } catch { skipped.push(path + '/*'); break; }
+      if (r.done) break;
+      out.push(r.value);
+    }
+  } catch { skipped.push(path + '/*'); }
+  return out;
 }
 
 export async function scanDirectory(
@@ -39,6 +58,7 @@ export async function scanDirectory(
   const started = performance.now();
   const items: ScanItem[] = [];
   const topLevel: ScanResult['topLevel'] = [];
+  const skipped: string[] = [];
   let fileCount = 0, dirCount = 0, totalSize = 0, id = 0;
   let truncated = false;
 
@@ -53,10 +73,7 @@ export async function scanDirectory(
     if (progress.scannedDirs % 10 === 0) tick();
 
     let entries: FileSystemHandle[] = [];
-    try {
-      entries = [];
-      for await (const e of (dir as any).values()) entries.push(e);
-    } catch { return { size: 0, files: 0 }; }
+    entries = await safeEntries(dir, path || dir.name, skipped);
 
     for (const entry of entries) {
       if (truncated) break;
@@ -93,7 +110,7 @@ export async function scanDirectory(
         const rule = matchRule(entry.name, entryPath, true, 0);
         if (rule && rule.terminal) {
           const acc = { size: 0, files: 0 };
-          try { await subtreeStats(dh, acc); } catch { /* skip */ }
+          await subtreeStats(dh, acc, skipped, entryPath);
           size += acc.size; files += acc.files;
           fileCount += acc.files; totalSize += acc.size;
           progress.scannedFiles += acc.files; progress.bytes += acc.size;
@@ -122,12 +139,12 @@ export async function scanDirectory(
         try {
           const f = await (e as FileSystemFileHandle).getFile();
           topLevel.push({ name: e.name, path: e.name, size: f.size, isDir: false, category: 'other' });
-        } catch { /* skip */ }
+        } catch { skipped.push(e.name); }
       } else {
         const rule = matchRule(e.name, e.name, true, 0);
         if (rule?.terminal) {
           const acc = { size: 0, files: 0 };
-          try { await subtreeStats(e as FileSystemDirectoryHandle, acc); } catch { /* skip */ }
+          await subtreeStats(e as FileSystemDirectoryHandle, acc, skipped, e.name);
           topLevel.push({ name: e.name, path: e.name, size: acc.size, isDir: true, category: rule.category });
           fileCount += acc.files; totalSize += acc.size;
           if (items.length < MAX_ITEMS) {
@@ -143,7 +160,7 @@ export async function scanDirectory(
         }
       }
     }
-  } catch { /* permission */ }
+  } catch { skipped.push(root.name + '/*'); }
 
   topLevel.sort((a, b) => b.size - a.size);
   items.sort((a, b) => b.size - a.size);
@@ -155,6 +172,7 @@ export async function scanDirectory(
     items, topLevel,
     durationMs: performance.now() - started,
     truncated,
+    skipped,
   };
 }
 

@@ -41,17 +41,27 @@ export default function App() {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState<{ done: number; total: number; current: string } | null>(null);
   const [deleteResult, setDeleteResult] = useState<{ deleted: number; freed: number; errors: string[] } | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [showSkipped, setShowSkipped] = useState(false);
 
   const result = phase.kind === 'done' ? phase.result : null;
   const isDemo = phase.kind === 'done' && phase.demo;
 
-  async function startRealScan() {
+  async function startRealScan(startIn?: string) {
+    setScanError(null);
     try {
-      const dir = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+      const dir = await (window as any).showDirectoryPicker({ mode: 'readwrite', ...(startIn ? { startIn } : {}) });
       setPhase({ kind: 'scanning', progress: { scannedDirs: 0, scannedFiles: 0, bytes: 0, currentPath: dir.name } });
       const res = await scanDirectory(dir, (p) => setPhase({ kind: 'scanning', progress: p }));
       finish(res, false);
-    } catch { /* user cancelled */ }
+    } catch (e: any) {
+      if (e?.name === 'AbortError') return; // user cancelled picker
+      if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') {
+        setScanError('Thư mục này bị trình duyệt chặn vì chứa dữ liệu hệ thống/nhạy cảm của macOS (vd một số nhánh trong ~/Library). Hãy chọn thư mục con cụ thể thay vì thư mục gốc — ví dụ chọn thẳng "DerivedData" thay vì "Library".');
+      } else {
+        setScanError(`Không quét được: ${e?.message || 'lỗi không xác định'}`);
+      }
+    }
   }
 
   function finish(res: ScanResult, demo: boolean) {
@@ -176,7 +186,7 @@ export default function App() {
 
             <div className="flex flex-wrap gap-3 mb-10">
               {supportsFSAccess() ? (
-                <button onClick={startRealScan}
+                <button onClick={() => startRealScan()}
                   className="inline-flex items-center gap-2 bg-[#00d9a3] text-black font-semibold px-5 py-2.5 rounded-md hover:brightness-110 transition text-sm">
                   <FolderSearch className="w-4 h-4" /> Quét thư mục thật trên máy
                 </button>
@@ -190,6 +200,59 @@ export default function App() {
                 <Sparkles className="w-4 h-4" /> Xem demo (MacBook 500GB của vibe coder)
               </button>
             </div>
+
+            {/* Scan error banner */}
+            {scanError && (
+              <div className="mb-8 border border-[#ffbd2e]/40 bg-[#ffbd2e]/[0.06] rounded-md p-4 flex gap-3">
+                <AlertTriangle className="w-4 h-4 text-[#ffbd2e] shrink-0 mt-0.5" />
+                <div className="text-[13px] text-zinc-300 leading-relaxed">
+                  {scanError}
+                  <div className="mt-2 font-mono text-[11px] text-zinc-500">
+                    Với DerivedData & Simulator, nhanh nhất vẫn là Terminal:<br />
+                    <code className="text-[#00d9a3]">rm -rf ~/Library/Developer/Xcode/DerivedData</code><br />
+                    <code className="text-[#00d9a3]">xcrun simctl delete unavailable</code>
+                  </div>
+                </div>
+                <button onClick={() => setScanError(null)} className="ml-auto text-zinc-600 hover:text-zinc-300 shrink-0"><X className="w-4 h-4" /></button>
+              </div>
+            )}
+
+            {/* Quick-pick suggested folders */}
+            {supportsFSAccess() && (
+              <div className="mb-10">
+                <div className="label-caps mb-3">Quét nhanh — chỗ hay ngốn GB nhất của vibe coder</div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { label: 'Projects', path: '~/projects', hint: 'node_modules, .git, build của chục project', startIn: undefined, icon: Code2, hot: true },
+                    { label: 'Xcode Data', path: '~/Library/Developer/Xcode', hint: 'DerivedData + Archives — thường 30-60GB', startIn: undefined, icon: Hammer, hot: true },
+                    { label: 'iOS Simulators', path: '~/Library/Developer/CoreSimulator', hint: 'Mỗi simulator vài GB, xóa cái không dùng', startIn: undefined, icon: HardDrive, hot: true },
+                    { label: 'Downloads', path: '~/Downloads', hint: '.dmg, .zip, APK cài xong quên xóa', startIn: 'downloads', icon: Archive, hot: false },
+                    { label: 'Claude Code', path: '~/.claude', hint: 'Sessions, todos, shell snapshots', startIn: undefined, icon: Bot, hot: false },
+                    { label: 'Codex CLI', path: '~/.codex', hint: 'Sessions & logs của Codex', startIn: undefined, icon: Bot, hot: false },
+                    { label: 'App Caches', path: '~/Library/Caches', hint: 'Cache mọi app — tự tạo lại', startIn: undefined, icon: Database, hot: false },
+                    { label: 'Desktop', path: '~/Desktop', hint: 'Nghĩa địa file tạm của mọi dev', startIn: 'desktop', icon: Folder, hot: false },
+                    { label: 'Toàn bộ Home', path: '~', hint: 'Quét full — lâu nhưng kỹ nhất', startIn: undefined, icon: FolderSearch, hot: false },
+                  ].map(sug => (
+                    <button key={sug.label} onClick={() => startRealScan(sug.startIn)}
+                      className={`text-left border rounded-md p-3 transition group ${sug.hot ? 'border-[#00d9a3]/30 bg-[#00d9a3]/[0.04] hover:border-[#00d9a3]/60' : 'border-zinc-800 bg-zinc-900/40 hover:border-zinc-600'}`}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <sug.icon className={`w-3.5 h-3.5 ${sug.hot ? 'text-[#00d9a3]' : 'text-zinc-500'}`} />
+                        <span className="text-[12px] font-medium text-zinc-200">{sug.label}</span>
+                        {sug.hot && <span className="label-caps text-[#00d9a3] ml-auto">hot</span>}
+                      </div>
+                      <div className="font-mono text-[10px] text-zinc-500 truncate mb-0.5">{sug.path}</div>
+                      <div className="text-[10px] text-zinc-600 leading-snug">{sug.hint}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2.5 text-[11px] text-zinc-600 font-mono flex items-center gap-1.5">
+                  <ChevronRight className="w-3 h-3 text-zinc-700" />
+                  Tip: trong hộp chọn thư mục của macOS, bấm
+                  <kbd className="px-1.5 py-0.5 border border-zinc-700 rounded text-[10px] text-zinc-400">⌘ ⇧ G</kbd>
+                  rồi dán đường dẫn (vd <span className="text-zinc-400">~/Library/Developer/Xcode</span>) để nhảy thẳng tới.
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 sm:grid-cols-4 border border-zinc-800 divide-x divide-zinc-800 rounded-md overflow-hidden">
               {(['protected', 'caution', 'review', 'safe'] as SafetyLevel[]).map((l, i) => {
@@ -392,6 +455,22 @@ export default function App() {
             </div>
           </div>
           {r.truncated && <p className="text-[11px] text-zinc-600 mt-2 font-mono">⚠ Kết quả bị giới hạn ở 4000 mục lớn nhất.</p>}
+          {(r.skipped?.length ?? 0) > 0 && (
+            <div className="mt-2 border border-zinc-800 rounded-md bg-zinc-900/40 p-3">
+              <button onClick={() => setShowSkipped(s => !s)} className="flex items-center gap-2 text-[11px] font-mono text-[#ffbd2e]">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Đã bỏ qua {r.skipped!.length} mục bị macOS/trình duyệt chặn (file hệ thống)
+                <ChevronRight className={`w-3 h-3 transition-transform ${showSkipped ? 'rotate-90' : ''}`} />
+              </button>
+              {showSkipped && (
+                <div className="mt-2 max-h-32 overflow-y-auto font-mono text-[10px] text-zinc-600 space-y-0.5">
+                  {r.skipped!.slice(0, 100).map((s, idx) => <div key={idx} className="truncate">⤷ {s}</div>)}
+                  {r.skipped!.length > 100 && <div>… và {r.skipped!.length - 100} mục khác</div>}
+                  <div className="text-zinc-500 pt-1">Các mục này không tính vào tổng dung lượng. Với Library/Xcode, dùng Terminal sẽ đầy đủ hơn.</div>
+                </div>
+              )}
+            </div>
+          )}
         </section>
       </main>
 

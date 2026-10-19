@@ -32,6 +32,7 @@ export interface ScanResult {
   topLevel: { name: string; path: string; size: number; isDir: boolean; category: string }[];
   durationMs: number;
   truncated: boolean;
+  skipped?: string[];
 }
 
 export const LEVELS: Record<SafetyLevel, { order: number; label: string; short: string; color: string; bg: string; ring: string; desc: string }> = {
